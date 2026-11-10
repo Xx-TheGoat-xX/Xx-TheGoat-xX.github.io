@@ -1,44 +1,103 @@
 <!DOCTYPE html>
-<html lang="en">
-
+<html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-    <title>Random Hello World PWA - A Multi-Language Progressive Web App</title>
-    <meta name="description" content="Says &quot;Hello World!&quot; in a random human language, on a random background color. It's a PWA, so you can try it in your browser, and add it to your home screen.">
-
-    <link rel="manifest" href="/manifest.webmanifest">
-    <link rel="apple-touch-icon" href="/images/manifest/icons/random-hello-world-pwa-icon-180.png">
-    <meta name="theme-color" content="#000000" />
-
-    <link rel="stylesheet" href="/styles/normalize.css">
-    <link rel="stylesheet" href="/styles/main.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PWA Open LED Race</title>
+    <link rel="manifest" href="manifest.json">
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background: #121212; color: white; padding: 20px; margin: 0; }
+        .btn { padding: 15px 30px; font-size: 18px; margin: 10px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; width: 80%; max-width: 300px; }
+        .connect { background: #2196F3; color: white; }
+        .p1 { background: #4CAF50; color: white; height: 120px; font-size: 24px; }
+        .p2 { background: #F44336; color: white; height: 120px; font-size: 24px; }
+        .reset { background: #757575; color: white; }
+        .status { margin: 15px; font-style: italic; color: #bbb; }
+        .game-pad { display: none; margin-top: 20px; }
+    </style>
 </head>
-
 <body>
-    <header class="toolbar" id="toolbar">
-        <h1 id="title" class="toolbar__title">Hello World</h1>
-        <div class="toolbar__actions">
-            <i id="shuffle" class="toolbar__action icon--refresh" title="Reload message"></i>
-            <a href="https://www.tecdrop.com" target="_blank" rel="noopener">
-                <i class="toolbar__action icon--info" title="App info"></i>
-            </a>
-        </div>
-    </header>
-    <main id="main">
-        <p class="message" id="message">Hello World!</p>
-    </main>
 
-    <script type="module" src="/scripts/main.js"></script>
+    <h1>Bandeau LED Connecté</h1>
+    <div id="status" class="status">Statut : Déconnecté</div>
+    <button id="connectBtn" class="btn connect">🔗 Connecter le Bandeau</button>
+
+    <div id="gamePad" class="game-pad">
+        <button id="p1Btn" class="btn p1">🏎️ ACCÉLÉRER VERT (P1)</button>
+        <button id="p2Btn" class="btn p2">🏎️ ACCÉLÉRER ROUGE (P2)</button>
+        <br><br>
+        <button id="resetBtn" class="btn reset">🔄 Réinitialiser la course</button>
+    </div>
 
     <script>
-        // Register service worker
-        if ("serviceWorker" in navigator) {
-            window.addEventListener("load", () => {
-                navigator.serviceWorker.register("/sw.js");
+        // UUIDs conformes au profil UART BLE configuré sur le Pico
+        const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+        const UART_RX_CHAR_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+
+        let rxCharacteristic = null;
+        let bleDevice = null;
+
+        const connectBtn = document.getElementById('connectBtn');
+        const statusDiv = document.getElementById('status');
+        const gamePad = document.getElementById('gamePad');
+
+        connectBtn.addEventListener('click', async () => {
+            try {
+                statusDiv.innerText = "Recherche du Pico...";
+                // Requête d'accès au composant Web Bluetooth
+                bleDevice = await navigator.bluetooth.requestDevice({
+                    filters: [{ name: 'Pico-LED-Race' }],
+                    optionalServices: [UART_SERVICE_UUID]
+                });
+
+                statusDiv.innerText = "Connexion au serveur GATT...";
+                const server = await bleDevice.gatt.connect();
+
+                statusDiv.innerText = "Récupération du service...";
+                const service = await server.getPrimaryService(UART_SERVICE_UUID);
+
+                statusDiv.innerText = "Accès aux commandes...";
+                rxCharacteristic = await service.getCharacteristic(UART_RX_CHAR_UUID);
+
+                statusDiv.innerText = "Connecté avec succès !";
+                connectBtn.style.display = "none";
+                gamePad.style.display = "block";
+
+                bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+            } catch (error) {
+                console.error(error);
+                statusDiv.innerText = "Erreur de connexion : " + error.message;
+            }
+        });
+
+        // Envoi des buffers textuels à destination du microcontrôleur
+        async function sendCommand(cmd) {
+            if (!rxCharacteristic) return;
+            try {
+                const encoder = new TextEncoder();
+                await rxCharacteristic.writeValue(encoder.encode(cmd));
+            } catch (error) {
+                console.error("Échec d'envoi : ", error);
+            }
+        }
+
+        document.getElementById('p1Btn').addEventListener('pointerdown', () => sendCommand('p1'));
+        document.getElementById('p2Btn').addEventListener('pointerdown', () => sendCommand('p2'));
+        document.getElementById('resetBtn').addEventListener('click', () => sendCommand('reset'));
+
+        function onDisconnected() {
+            statusDiv.innerText = "Statut : Déconnecté";
+            connectBtn.style.display = "inline-block";
+            gamePad.style.display = "none";
+            rxCharacteristic = null;
+        }
+
+        // Déclaration du Service Worker requis pour la conformité PWA
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js').catch(err => console.log(err));
             });
         }
     </script>
 </body>
-
 </html>
